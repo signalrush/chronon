@@ -1,5 +1,5 @@
 # Start from a Debian base image
-FROM openjdk:8-jre-slim
+FROM eclipse-temurin:8-jre-jammy
 
 # Set this manually before building the image, requires a local build of the jar
 
@@ -31,9 +31,10 @@ RUN curl -sSL "http://archive.apache.org/dist/thrift/$THRIFT_VERSION/thrift-$THR
        && cd / \
        && rm -rf /usr/src/thrift
 
-RUN curl https://downloads.lightbend.com/scala/${SCALA_VERSION}/scala-${SCALA_VERSION}.deb -k -o scala.deb && \
-    apt install -y ./scala.deb && \
-    rm -rf scala.deb /var/lib/apt/lists/*
+RUN curl -sSL https://downloads.lightbend.com/scala/${SCALA_VERSION}/scala-${SCALA_VERSION}.tgz -o scala.tgz && \
+    tar xzf scala.tgz -C /usr/local && \
+    ln -s /usr/local/scala-${SCALA_VERSION}/bin/* /usr/local/bin/ && \
+    rm scala.tgz
 
 ENV SCALA_HOME="/usr/bin/scala"
 ENV PATH=${PATH}:${SCALA_HOME}/bin
@@ -79,6 +80,20 @@ ENV DRIVER_JAR_PATH="/srv/spark/spark_embedded.jar"
 
 COPY api/py/test/sample ./
 COPY quickstart/mongo-online-impl /srv/onlineImpl
-COPY $CHRONON_JAR_PATH "$DRIVER_JAR_PATH"
+RUN mkdir -p /srv/spark /srv/onlineImpl/target/scala-2.12 && \
+    curl -L "https://repo1.maven.org/maven2/ai/chronon/spark_embedded_2.12/0.0.99/spark_embedded_2.12-0.0.99-assembly.jar" \
+    -o "$DRIVER_JAR_PATH" && \
+    curl -L "https://github.com/signalrush/chronon-jars/releases/download/v0.1.0/mongo-online-impl.jar" \
+    -o /srv/onlineImpl/target/scala-2.12/mongo-online-impl-assembly-0.1.0-SNAPSHOT.jar
 
 ENV CHRONON_DRIVER_JAR="$DRIVER_JAR_PATH"
+ENV SPARK_SUBMIT_PATH=spark-submit
+ENV JOB_MODE="local[*]"
+ENV PARALLELISM=2
+ENV EXECUTOR_MEMORY=2G
+ENV EXECUTOR_CORES=4
+ENV DRIVER_MEMORY=1G
+ENV CHRONON_LOG_TABLE=default.chronon_log_table
+ENV CHRONON_ONLINE_CLASS=ai.chronon.quickstart.online.ChrononMongoOnlineImpl
+
+CMD ["bash", "-c", "spark-shell -i scripts/data-loader.scala && tail -f /dev/null"]
